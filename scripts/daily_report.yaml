@@ -5,8 +5,16 @@
 start: "20260101"
 end: "auto"
 
-# Backtest universe: code + display name
+# Include all CSI 300 (沪深300) constituent stocks in the universe.
+# When true, daily_report.py fetches the index weight from Tushare and
+# merges the codes into the universe at runtime.
+hs300: true
+
+# Backtest universe: code + display name (ETFs + representative stocks)
+# These are always included. When hs300=true, the ~300 CSI300 constituents
+# are added automatically.
 universe:
+  # ETFs
   - code: "510300"
     name: "沪深300ETF"
   - code: "510500"
@@ -17,6 +25,37 @@ universe:
     name: "上证50ETF"
   - code: "588000"
     name: "科创50ETF"
+  - code: "512100"
+    name: "中证1000ETF"
+  - code: "512760"
+    name: "半导体ETF"
+  - code: "515790"
+    name: "光伏ETF"
+  - code: "515030"
+    name: "新能源车ETF"
+  - code: "515170"
+    name: "新能源ETF"
+  - code: "512010"
+    name: "医药ETF"
+  - code: "512000"
+    name: "券商ETF"
+  - code: "515880"
+    name: "通信ETF"
+  - code: "159995"
+    name: "芯片ETF"
+  - code: "588200"
+    name: "新能源ETF"
+  # 主板龙头股（代表性）
+  - code: "600519"
+    name: "贵州茅台"
+  - code: "601318"
+    name: "中国平安"
+  - code: "000858"
+    name: "五粮液"
+  - code: "600036"
+    name: "招商银行"
+  - code: "300750"
+    name: "宁德时代"
 
 # Initial cash (CNY)
 cash: 100000

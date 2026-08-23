@@ -59,24 +59,112 @@ def load_config() -> dict:
         defaults.update(loaded)
     return defaults
 
-
 CONFIG = load_config()
 
-# Build code list and name lookup from config
-UNIVERSE = CONFIG.get("universe", [])
+# Optional: fetch HS300 constituents from Tushare at runtime
+def _fetch_hs300_stocks() -> list[dict]:
+    """Fetch CSI 300 index weight from Tushare, return list of {code, name}."""
+    token = os.environ.get("TUSHARE_TOKEN", "")
+    if not token:
+        try:
+            token = Path("/root/.tushare_token").read_text().strip()
+        except Exception:
+            pass
+    if not token:
+        print("Warning: no TUSHARE_TOKEN, skipping HS300 constituents.")
+        return []
+
+    import urllib.request
+    import json as _json
+
+    api_url = "http://api.tushare.pro"
+    body = _json.dumps({
+        "api_name": "index_weight",
+        "token": token,
+        "params": {"index_code": "000300.SH"},
+        "fields": "con_code,trade_date",
+    }).encode()
+    try:
+        req = urllib.request.Request(api_url, data=body,
+                                     headers={"Content-Type": "application/json"})
+        resp = urllib.request.urlopen(req, timeout=30)
+        data = _json.loads(resp.read())
+        items = data.get("data", {}).get("items", [])
+        if not items:
+            print("Warning: HS300 index_weight returned no items.")
+            return []
+        # Find the latest trade_date and keep only that snapshot's codes
+        dates = sorted(set(row[1] for row in items), reverse=True)
+        latest_date = dates[0]
+        latest_codes = set()
+        for row in items:
+            if row[1] == latest_date:
+                latest_codes.add(row[0])  # e.g. "600519.SH"
+        # Convert Tushare ts_code -> plain code (strip exchange suffix)
+        result = []
+        for ts_code in sorted(latest_codes):
+            code = ts_code.split(".")[0]
+            result.append({"code": code, "name": code})  # name resolved later from bundle
+        print(f"  HS300: {len(result)} constituents (snapshot {latest_date})")
+        return result
+    except Exception as e:
+        print(f"Warning: failed to fetch HS300 constituents: {e}")
+        return []
+
+
+# Build universe: config items + optional HS300 constituents
+_base_universe = CONFIG.get("universe", [])
+if CONFIG.get("hs300", False):
+    _hs300 = _fetch_hs300_stocks()
+    _existing_codes = {item["code"] for item in _base_universe}
+    for s in _hs300:
+        if s["code"] not in _existing_codes:
+            _base_universe.append(s)
+UNIVERSE = _base_universe
 CODES = ",".join(item["code"] for item in UNIVERSE)
-# RQAlpha order_book_id -> display name (e.g. "510300.XSHG" -> "沪深300ETF")
+
+# Resolve stock names from bundle instruments.pk for codes without display names
+def _resolve_names_from_bundle():
+    """Fill in display names from bundle instruments.pk for HS300 stocks."""
+    try:
+        import pickle
+        ins_path = BUNDLE + "/instruments.pk"
+        with open(ins_path, "rb") as f:
+            instruments = pickle.load(f)
+        # Build order_book_id -> symbol map
+        name_map = {}
+        for ins in instruments:
+            obid = str(ins.get("order_book_id", ""))
+            symbol = str(ins.get("symbol", ""))
+            if obid and symbol:
+                name_map[obid] = symbol
+        # Fill in names for universe items that still use code as name
+        for item in UNIVERSE:
+            if item["name"] == item["code"]:
+                code = item["code"]
+                suffix = ".XSHG" if code.startswith(("5", "6")) else ".XSHE"
+                obid = code + suffix
+                if obid in name_map:
+                    item["name"] = name_map[obid]
+    except Exception as e:
+        print(f"Warning: could not resolve names from bundle: {e}")
+
+_resolve_names_from_bundle()
+
+# RQAlpha order_book_id -> display name
 CODE_NAMES = {}
 for item in UNIVERSE:
     code = item["code"]
-    # RQAlpha exchange suffix: SH -> .XSHG, SZ -> .XSHE
     suffix = ".XSHG" if code.startswith(("5", "6")) else ".XSHE"
     CODE_NAMES[code + suffix] = item["name"]
-    CODE_NAMES[code] = item["name"]  # also plain code for safety
+    CODE_NAMES[code] = item["name"]
 
 CASH = CONFIG.get("cash", 100000)
 BENCHMARK = CONFIG.get("benchmark", "000300.XSHG")
 SLIPPAGE = str(CONFIG.get("slippage", "0.001"))
+_etf_count = len([i for i in UNIVERSE if i["code"].startswith(("5", "1"))])
+_stock_count = len(UNIVERSE) - _etf_count
+print(f"Universe: {len(UNIVERSE)} instruments ({_etf_count} ETFs + {_stock_count} stocks)")
 
 STRATEGIES = [
     {
@@ -133,26 +221,31 @@ STRATEGIES = [
 ]
 
 def get_bundle_date_range() -> tuple[str, str]:
-    """Get data range for our backtest ETFs from bundle.
+    """Get data range for our backtest universe from bundle.
 
-    Returns (earliest_first, latest_last) across our 5 ETFs in funds.h5.
+    Checks both funds.h5 (ETFs) and stocks.h5 (stocks) for our universe.
+    Returns (earliest_first, latest_last).
     """
-    etf_keys = [
-        "510300.XSHG", "510500.XSHG", "159915.XSHE",
-        "510050.XSHG", "588000.XSHG",
-    ]
     try:
         import h5py
 
-        f = h5py.File(BUNDLE + "/funds.h5", "r")
         firsts, lasts = [], []
-        for key in etf_keys:
-            if key in f:
-                data = f[key][:]
-                if len(data) > 0 and "datetime" in data.dtype.names:
-                    firsts.append(str(data["datetime"][0])[:8])
-                    lasts.append(str(data["datetime"][-1])[:8])
-        f.close()
+        for h5_name in ["funds.h5", "stocks.h5"]:
+            path = BUNDLE + "/" + h5_name
+            try:
+                f = h5py.File(path, "r")
+            except Exception:
+                continue
+            for item in UNIVERSE:
+                code = item["code"]
+                suffix = ".XSHG" if code.startswith(("5", "6")) else ".XSHE"
+                key = code + suffix
+                if key in f:
+                    data = f[key][:]
+                    if len(data) > 0 and "datetime" in data.dtype.names:
+                        firsts.append(str(data["datetime"][0])[:8])
+                        lasts.append(str(data["datetime"][-1])[:8])
+            f.close()
         if firsts and lasts:
             return min(firsts), max(lasts)
     except Exception as e:
@@ -230,12 +323,17 @@ def run_backtest(strategy: dict, start: str, end: str) -> dict | None:
         for _, row in trades.iterrows():
             inst = str(row.get("order_book_id", ""))
             inst_name = CODE_NAMES.get(inst, inst)
+            side_val = row.get("side", "")
+            if isinstance(side_val, str):
+                side_cn = "买入" if side_val == "BUY" else "卖出" if side_val == "SELL" else str(side_val)
+            else:
+                side_cn = "买入" if side_val == 0 else "卖出" if side_val == 1 else str(side_val)
             trade_list.append({
                 "date": str(row.get("datetime", ""))[:10],
                 "instrument": inst_name,
-                "side": "买入" if row.get("side") == 0 else "卖出" if row.get("side") == 1 else str(row.get("side")),
-                "quantity": int(row.get("quantity", 0)),
-                "price": round(float(row.get("price", 0)), 3),
+                "side": side_cn,
+                "quantity": int(row.get("last_quantity", row.get("quantity", 0)) or 0),
+                "price": round(float(row.get("last_price", row.get("price", 0)) or 0), 3),
             })
 
     def _safe_float(val) -> float:
@@ -280,7 +378,7 @@ def render_html(results: list[dict], start: str, end: str) -> str:
         highlight = ' style="background:rgba(82,196,26,0.08)"' if i == 0 else ""
         comparison_rows += f"""
         <tr{highlight}>
-          <td>{r['label']}</td>
+          <td>{r['label']}（{r['name']}）</td>
           <td style="color:{ret_color};font-weight:600">{ret}</td>
           <td>{r['sharpe']:.2f}</td>
           <td style="color:#ff4d4f">{dd}</td>
@@ -329,7 +427,7 @@ def render_html(results: list[dict], start: str, end: str) -> str:
         ret_color = "#52c41a" if r["total_returns"] >= 0 else "#ff4d4f"
         cards_html += f"""
         <div class="card">
-          <h3>{r['label']} <span class="tag">{r['name']}</span></h3>
+          <h3>{r['label']}（{r['name']}）</h3>
           <div class="metrics">
             <span class="metric" style="color:{ret_color}">收益 {r['total_returns']:+.2%}</span>
             <span class="metric">夏普 {r['sharpe']:.2f}</span>
@@ -347,7 +445,7 @@ def render_html(results: list[dict], start: str, end: str) -> str:
     for r in errors:
         cards_html += f"""
         <div class="card error">
-          <h3>{r['label']} <span class="tag">{r['name']}</span></h3>
+          <h3>{r['label']}（{r['name']}）</h3>
           <p style="color:#ff4d4f">回测失败</p>
           <pre style="color:#999;font-size:11px;white-space:pre-wrap">{r.get('stderr','')[:300]}</pre>
         </div>"""
@@ -423,8 +521,12 @@ def update_bundle() -> str | None:
         except Exception:
             pass
 
-    # Use config codes + benchmark for bundle update
-    update_codes = CODES + ",000300.XSHG"
+    # Write all universe codes + benchmark to a codes file for --codes-file
+    codes_file = OUTPUT_DIR / "update_codes.txt"
+    all_codes = [item["code"] for item in UNIVERSE] + ["000300.XSHG"]
+    codes_file.write_text("\n".join(all_codes), encoding="utf-8")
+    print(f"  Codes file: {len(all_codes)} instruments")
+
     cmd = [
         VENV_PYTHON,
         str(PROJECT / "scripts" / "update_rqalpha_bundle.py"),
@@ -433,16 +535,15 @@ def update_bundle() -> str | None:
         "--start", start_date,
         "--end", end_date,
         "--universe", "stock,index,etf",
-        "--codes", update_codes,
+        "--codes-file", str(codes_file),
         "--rate-limit-per-minute", "60",
     ]
     env = os.environ.copy()
     env["TUSHARE_TOKEN"] = token
     env["PYTHONPATH"] = str(PROJECT / "strategy")
-
     try:
         result = subprocess.run(cmd, cwd=str(PROJECT), env=env,
-                                capture_output=True, text=True, timeout=600)
+                                capture_output=True, text=True, timeout=1200)
         if result.returncode != 0:
             print(f"  Bundle update warning: {result.stderr[-300:] if result.stderr else 'unknown'}")
         else:
