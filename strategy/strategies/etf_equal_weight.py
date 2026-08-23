@@ -6,7 +6,8 @@ import pandas as pd
 class EqualWeightStrategy:
     """Equal-weight all tradable symbols on each rebalance date."""
 
-    name = "ETF等权月度再平衡"
+    name = "ETF等权再平衡"
+    requires_history = False
 
     def target_weights(
         self,

@@ -14,18 +14,32 @@ instrument identifiers.
 Proposed command shape:
 
 ```bash
-PYTHONPATH=strategy .venv/bin/python scripts/update_rqalpha_bundle.py \
+TUSHARE_TOKEN=... PYTHONPATH=strategy .venv/bin/python scripts/update_rqalpha_bundle.py update \
   --bundle data/rqalpha_bundle/bundle \
-  --start 2026-05-30 \
-  --end 2026-06-19 \
-  --universe etf,stock,index
+  --output-bundle data/rqalpha_bundle/bundle_2026-06-22 \
+  --start 2026-06-01 \
+  --end 2026-06-22 \
+  --universe stock,index,etf
+```
+
+Compare converted Tushare rows with existing bundle rows before trusting a new
+source:
+
+```bash
+TUSHARE_TOKEN=... PYTHONPATH=strategy .venv/bin/python scripts/update_rqalpha_bundle.py compare \
+  --bundle data/rqalpha_bundle/bundle \
+  --start 2026-05-28 \
+  --end 2026-05-29 \
+  --codes 000001,510300,159915,000300 \
+  --universe stock,index,etf
 ```
 
 ## Open Questions
 
-- Which upstream data source is trusted for daily incremental updates?
-- Does the source provide adjusted bars, raw bars, factors, dividends, and
-  suspension data, or only OHLCV?
+- Tushare Pro is the first supported upstream source.
+- Tushare provides raw daily bars, limit prices, adjustment factors, dividends,
+  fund dividends, suspension data, ETF bars, ETF factors, index bars, calendars,
+  and instrument metadata for the first updater.
 - Should updates modify the official bundle in place or write a new versioned
   bundle directory?
 - How should failed partial updates roll back?
@@ -61,6 +75,19 @@ Investigate and document each required file before writing updater code:
    the updated bundle.
 8. Add a manifest file outside the bundle recording source, update time, date
    range, row counts, and validation result.
+
+## First Tushare Mapping
+
+- `stocks.h5`: `daily` plus `stk_limit`.
+- `funds.h5`: `fund_daily` plus `stk_limit`.
+- `indexes.h5`: `index_daily`.
+- `ex_cum_factor.h5`: `adj_factor` and `fund_adj`, converted by factor ratios
+  so the existing RQAlpha factor scale is preserved.
+- `dividends.h5`: `dividend` and `fund_div`, converted to RQAlpha's per-10-lot
+  cash dividend convention.
+- `suspended_days.h5`: `suspend_d`, full-day suspension rows only.
+- `st_stock_days.h5`: derived from `namechange` records until direct
+  `stock_st` access is available.
 
 ## Near-Term Manual Process
 

@@ -1,0 +1,173 @@
+# Default QuantBoy/RQAlpha batch backtest config.
+#
+# Command line arguments with the same names override these values.
+
+start: 2025-01-01
+end: 2026-05-29
+
+cash: 100000
+benchmark: 000300.XSHG
+slippage: 0.001
+bundle: data/rqalpha_bundle/bundle
+rqalpha_bin: .venv/bin/rqalpha
+log_level: error
+
+strategies:
+  - equal_weight
+  - momentum
+  - ma_trend
+  - dual_ma
+  - mean_reversion
+  - low_volatility
+  - risk_parity
+  - trend_timing
+  - absolute_momentum
+  - dual_momentum
+  - volatility_target
+  - drawdown_control
+  - trend_risk_parity
+  - min_variance
+  - max_sharpe
+  - low_volatility_trend
+  - sector_rotation
+  - risk_adjusted_momentum
+  - trend_filtered_momentum
+  - momentum_risk_parity
+  - composite_momentum
+  - breakout_momentum
+  - drawdown_adjusted_momentum
+  - trailing_sharpe_momentum
+  - accelerating_momentum
+  - stateful_accelerating_momentum
+  - stateful_accelerating_ensemble
+  - calendar_filtered_stateful_ensemble
+  - smoothed_momentum
+
+rebalances: all
+history_bars: 260
+max_total_weight: 0.99
+use_pre_start_history: true
+min_avg_turnover: 200000000
+liquidity_lookback: 20
+avoid_limit_trades: true
+exclude_buy_boards:
+  - star
+  - chinext
+
+# RQAlpha subprocesses run in parallel. Each process also uses worker threads
+# to preload bundle close history for the strategy signal calculation.
+jobs: 6
+history_cache_workers: 8
+
+strategy_parameters:
+  momentum:
+    lookback: 120
+    top_k: 1
+  ma_trend:
+    window: 120
+  dual_ma:
+    short_window: 20
+    long_window: 120
+  mean_reversion:
+    lookback: 20
+    top_k: 1
+    trend_window: 120
+  low_volatility:
+    lookback: 60
+    top_k: 3
+  risk_parity:
+    lookback: 60
+  trend_timing:
+    window: 200
+  absolute_momentum:
+    lookback: 120
+    min_return: 0
+  dual_momentum:
+    lookback: 120
+    top_k: 1
+    min_return: 0
+  volatility_target:
+    lookback: 60
+    target_volatility: 0.10
+    max_leverage: 1.0
+  drawdown_control:
+    lookback: 120
+    max_drawdown: 0.08
+  trend_risk_parity:
+    lookback: 60
+    trend_window: 120
+  min_variance:
+    lookback: 120
+  max_sharpe:
+    lookback: 120
+  low_volatility_trend:
+    lookback: 60
+    top_k: 3
+    trend_window: 120
+  sector_rotation:
+    lookback: 120
+    top_k: 1
+  risk_adjusted_momentum:
+    momentum_lookback: 120
+    volatility_lookback: 60
+    top_k: 3
+  trend_filtered_momentum:
+    lookback: 120
+    top_k: 3
+    trend_window: 120
+  momentum_risk_parity:
+    momentum_lookback: 120
+    volatility_lookback: 60
+    top_k: 5
+  composite_momentum:
+    short_lookback: 20
+    medium_lookback: 60
+    long_lookback: 120
+    volatility_lookback: 60
+    top_k: 3
+  breakout_momentum:
+    breakout_window: 120
+    momentum_lookback: 60
+    top_k: 3
+  drawdown_adjusted_momentum:
+    momentum_lookback: 220
+    volatility_lookback: 50
+    drawdown_lookback: 120
+    top_k: 2
+    drawdown_penalty: 2.0
+  trailing_sharpe_momentum:
+    lookback: 120
+    top_k: 2
+    min_return: 0
+  accelerating_momentum:
+    short_lookback: 20
+    long_lookback: 220
+    volatility_lookback: 30
+    top_k: 1
+    short_weight: 5.0
+  stateful_accelerating_momentum:
+    short_lookback: 20
+    long_lookback: 220
+    volatility_lookback: 30
+    top_k: 1
+    short_weight: 5.0
+    trailing_drawdown: 0.08
+    ma_exit_window: 999
+    cooldown_weeks: 2
+    allow_switch: 1
+  stateful_accelerating_ensemble:
+    take_profit: 0.8
+  calendar_filtered_stateful_ensemble:
+    take_profit: 0.8
+    active_months: 2,4,5,6
+  smoothed_momentum:
+    lookback: 180
+    top_k: 2
+
+runs:
+  - name: all_etf_liquid
+    codes_file: outputs/universes/all_etf_liquid_2025-01-01_2026-05-29.csv
+    output_dir: outputs/backtests/2025-01-01_2026-05-29_all_etf_liquid_100k_frequency_scan
+  - name: all_etf_liquid_plus_hs300
+    codes_file: outputs/universes/all_etf_liquid_plus_hs300_2025-01-01_2026-05-29.csv
+    output_dir: outputs/backtests/2025-01-01_2026-05-29_all_etf_liquid_plus_hs300_100k_frequency_scan

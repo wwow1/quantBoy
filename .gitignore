@@ -14,6 +14,8 @@ missing_data_codes.txt
 *.csv.tmp
 
 # Local RQAlpha / generated reports
+outputs/
+data/universes/
 rqalpha_bundle/
 rqalpha_*_report/
 rqalpha_*.pkl
@@ -22,3 +24,5 @@ rqalpha_*.pkl
 .DS_Store
 .idea/
 .vscode/
+.codex/
+data/rqalpha_bundle_official_2026-07-06/

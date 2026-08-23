@@ -6,7 +6,13 @@ import pandas as pd
 class MomentumRotationStrategy:
     """Rank symbols by trailing close-to-close momentum and hold the top names."""
 
+    history_fields = ["close"]
+
     def __init__(self, lookback: int = 120, top_k: int = 1):
+        if lookback <= 0:
+            raise ValueError("lookback must be positive")
+        if top_k <= 0:
+            raise ValueError("top_k must be positive")
         self.lookback = lookback
         self.top_k = top_k
         self.name = f"ETF{lookback}日动量Top{top_k}"

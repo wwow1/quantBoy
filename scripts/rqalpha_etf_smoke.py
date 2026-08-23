@@ -9,7 +9,7 @@ Run with:
       -f scripts/rqalpha_etf_smoke.py \
       -s 2020-11-16 \
       -e 2026-03-20 \
-      -a stock 1000000 \
+      -a stock 100000 \
       -bm 000300.XSHG \
       -mt next_bar \
       -sp 0.001 \

@@ -1,0 +1,28 @@
+# Daily backtest report configuration
+# Edit this file to change backtest parameters without touching code.
+
+# Backtest period (YYYYMMDD). "auto" for end = latest bundle date.
+start: "20260101"
+end: "auto"
+
+# Backtest universe: code + display name
+universe:
+  - code: "510300"
+    name: "沪深300ETF"
+  - code: "510500"
+    name: "中证500ETF"
+  - code: "159915"
+    name: "创业板ETF"
+  - code: "510050"
+    name: "上证50ETF"
+  - code: "588000"
+    name: "科创50ETF"
+
+# Initial cash (CNY)
+cash: 100000
+
+# Benchmark
+benchmark: "000300.XSHG"
+
+# Slippage
+slippage: "0.001"

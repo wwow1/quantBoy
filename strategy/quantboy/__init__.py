@@ -16,7 +16,15 @@ from .rqalpha_adapter import (
     from_rqalpha_order_book_id,
     to_rqalpha_order_book_id,
 )
-from strategies import EqualWeightStrategy, MomentumRotationStrategy
+from strategies import (
+    DualMovingAverageStrategy,
+    EqualWeightStrategy,
+    LowVolatilityStrategy,
+    MeanReversionStrategy,
+    MomentumRotationStrategy,
+    MovingAverageTrendStrategy,
+    RiskParityStrategy,
+)
 
 from . import indicator
 from .indicator import (
@@ -48,6 +56,11 @@ __all__ = [
     "from_rqalpha_order_book_id",
     "EqualWeightStrategy",
     "MomentumRotationStrategy",
+    "MovingAverageTrendStrategy",
+    "DualMovingAverageStrategy",
+    "MeanReversionStrategy",
+    "LowVolatilityStrategy",
+    "RiskParityStrategy",
     "indicator",
     "MA",
     "EMA",
