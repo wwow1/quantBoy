@@ -646,7 +646,10 @@ def update_bundle() -> str | None:
 
     # Write all universe codes + benchmark to a codes file for --codes-file
     codes_file = OUTPUT_DIR / "update_codes.txt"
-    all_codes = [item["code"] for item in UNIVERSE] + ["000300.XSHG"]
+    # 000001.XSHG (SSE composite) anchors RQAlpha's available_data_range:
+    # without fresh data for it the whole backtest is clipped to its last
+    # bar. 000300.XSHG is the benchmark.
+    all_codes = [item["code"] for item in UNIVERSE] + ["000300.XSHG", "000001.XSHG"]
     codes_file.write_text("\n".join(all_codes), encoding="utf-8")
     print(f"  Codes file: {len(all_codes)} instruments")
 
