@@ -592,6 +592,15 @@ def dataframe_to_security_records(
     if price.empty:
         return {}, 0
     df = price.copy()
+    # Drop codes whose exchange suffix the bundle cannot represent
+    # (Tushare daily/fund_daily may include OTC open-end funds '*.OF').
+    df = df[
+        df["ts_code"].map(
+            lambda c: str(c).rsplit(".", 1)[-1].upper() in TS_TO_RQ_EXCHANGE
+        )
+    ]
+    if df.empty:
+        return {}, 0
     df["order_book_id"] = df["ts_code"].map(ts_to_rq_order_book_id)
     df = df[df["order_book_id"].isin(wanted)]
     if df.empty:
