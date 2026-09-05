@@ -39,6 +39,7 @@ from .bundle_multifactor import (
     StatefulBundleMultiFactorMomentumStrategy,
 )
 from .wrappers import MarketTrendFilterStrategy, WeightedStrategyEnsemble
+from .sentiment_bias import SentimentBiasStrategy
 
 __all__ = [
     "EqualWeightStrategy",
@@ -75,4 +76,5 @@ __all__ = [
     "StatefulBundleMultiFactorMomentumStrategy",
     "MarketTrendFilterStrategy",
     "WeightedStrategyEnsemble",
+    "SentimentBiasStrategy",
 ]

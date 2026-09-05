@@ -21,6 +21,7 @@ Examples:
 """
 
 import os
+from pathlib import Path
 
 from quantboy import RQAlphaAdapterConfig, RQAlphaTargetWeightAdapter
 from strategies import (
@@ -48,6 +49,7 @@ from strategies import (
     RiskAdjustedMomentumStrategy,
     RiskParityStrategy,
     ScheduledRotationStrategy,
+    SentimentBiasStrategy,
     SmoothedMomentumStrategy,
     StatefulBundleMultiFactorMomentumStrategy,
     StatefulAcceleratingEnsembleStrategy,
@@ -121,6 +123,16 @@ def _build_strategy():
             reference_code=os.environ.get("QUANTBOY_RQ_MARKET_FILTER_CODE", "510300"),
             trend_window=int(os.environ.get("QUANTBOY_RQ_MARKET_TREND_WINDOW", "120")),
             min_momentum=min_momentum,
+        )
+    if os.environ.get("QUANTBOY_RQ_SENTIMENT_BIAS", "0") == "1":
+        strategy = SentimentBiasStrategy(
+            strategy,
+            db_path=os.environ.get(
+                "QUANTBOY_RQ_SENTIMENT_DB",
+                str(Path(__file__).resolve().parents[1] / "data" / "event_factors.db"),
+            ),
+            max_tilt=float(os.environ.get("QUANTBOY_RQ_SENTIMENT_TILT", "0.15")),
+            max_age_weeks=int(os.environ.get("QUANTBOY_RQ_SENTIMENT_MAX_AGE_WEEKS", "4")),
         )
     return strategy
 
