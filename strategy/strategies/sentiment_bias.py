@@ -27,16 +27,30 @@ def _days_between(a: str, b: str) -> int:
     return (db - da).days
 
 
+def _as_yyyymmdd(date) -> str:
+    """Coerce str/Timestamp/datetime to YYYYMMDD."""
+    if isinstance(date, str):
+        return date[:8].replace("-", "")
+    return pd.Timestamp(date).strftime("%Y%m%d")
+
+
 class SentimentBiasStrategy:
     """Tilt an inner strategy's target weights by LLM research-title sentiment.
 
-    Sentiment is a *bias*, not a signal: each held code's weight is scaled by
-    ``(1 + max_tilt * centered_score)`` where centered_score is the code's
-    weekly bull_ratio score minus the cross-sectional mean over ALL codes
-    scored that week (not just held ones, so single-name strategies still
-    get a tilt), then weights are renormalized to the inner strategy's
-    total exposure. ``max_tilt`` caps the per-name distortion
-    (default 0.15 => +-15%).
+    Sentiment is a *bias*, not a signal, acting through two channels:
+
+    1. **Relative tilt**: each held code's weight is scaled by
+       ``(1 + max_tilt * centered_score)`` where centered_score is the
+       code's weekly score minus the cross-sectional mean over ALL codes
+       scored that week; matters only when several names are held.
+    2. **Exposure tilt**: total exposure is scaled by
+       ``min(1, 1 + max_tilt * centered_held_mean)`` so bearish sentiment
+       moves weight to cash (never above 100%, no leverage). This keeps
+       the bias effective for single-name strategies where channel 1
+       cancels out under renormalization.
+
+    Weights are renormalized to the resulting target exposure.
+    ``max_tilt`` caps both distortions (default 0.15 => +-15%).
 
     PIT: a week's score is only usable from the following Monday
     (week + 7 days), and scores older than ``max_age_weeks`` are treated
@@ -111,10 +125,11 @@ class SentimentBiasStrategy:
 
     def target_weights(
         self,
-        date: str,
+        date,
         history: Dict[str, pd.DataFrame],
         tradable_codes: List[str],
     ) -> Dict[str, float]:
+        date = _as_yyyymmdd(date)
         weights = self.inner_strategy.target_weights(date, history, tradable_codes)
         if not self._loaded:
             self._load()
@@ -129,8 +144,12 @@ class SentimentBiasStrategy:
             pair = raw[code]
             factor = 1.0 + self.max_tilt * (pair[0] - pair[1]) if pair else 1.0
             tilted[code] = weight * factor
-        total = sum(tilted.values())
-        if total <= 0:
+        base_total = sum(weights.values())
+        held = [(weights[c], raw[c][0] - raw[c][1]) for c in known]
+        held_mean = sum(w * c for w, c in held) / sum(w for w, _ in held)
+        target_total = base_total * min(1.0, 1.0 + self.max_tilt * held_mean)
+        tilted_total = sum(tilted.values())
+        if tilted_total <= 0:
             return weights
-        scale = sum(weights.values()) / total
+        scale = target_total / tilted_total
         return {code: w * scale for code, w in tilted.items()}
