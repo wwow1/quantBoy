@@ -8,7 +8,8 @@ Two modes, both resumable via a per-unit completion ledger (_meta):
   incremental rolling refresh of the trailing --lookback-days window
               (ledger ignored); meant for the daily cron.
 Rate limits: shared 50 calls/min for all APIs; report_rc is capped at
-10 calls/hour by Tushare and gets its own ~6.6min-spaced limiter.
+10 calls/hour by Tushare (failed calls count too) and gets its own
+7min-spaced limiter (~8.6 calls/hour, safe margin).
 """
 
 from __future__ import annotations
@@ -157,7 +158,7 @@ def sync(pro, db: Path, start: str, end: str, rate: float, tables: Optional[List
             done.setdefault(tbl, set()).add(unit)
 
     limiter = RateLimiter(rate)
-    slow = RateLimiter(60.0 / 396.0)  # report_rc: 10 calls/hour, 10% margin
+    slow = RateLimiter(60.0 / 420.0)  # report_rc: 10 calls/hour incl. failures; 7min spacing
     units = build_units(pro, start, end)
     if tail_chunks:
         units["report_rc"] = units["report_rc"][-1:]
