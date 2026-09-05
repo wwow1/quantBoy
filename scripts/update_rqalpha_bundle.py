@@ -740,6 +740,15 @@ def fetch_factor_rows(
         df = source.call(api_name, trade_date=trading_date)
         if df.empty:
             continue
+        # Drop codes whose exchange suffix the bundle cannot represent
+        # (fund_adj also returns OTC open-end funds like '000001.OF').
+        df = df[
+            df["ts_code"].map(
+                lambda c: str(c).rsplit(".", 1)[-1].upper() in TS_TO_RQ_EXCHANGE
+            )
+        ]
+        if df.empty:
+            continue
         df = df.copy()
         df["order_book_id"] = df["ts_code"].map(ts_to_rq_order_book_id)
         df = df[df["order_book_id"].isin(wanted)]
