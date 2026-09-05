@@ -352,7 +352,7 @@ def run_backtest(strategy: dict, start: str, end: str) -> dict | None:
 
     print(f"  Running {strategy['name']}...")
     result = subprocess.run(
-        cmd, cwd=str(PROJECT), env=env, capture_output=True, text=True, timeout=120
+        cmd, cwd=str(PROJECT), env=env, capture_output=True, text=True, timeout=600
     )
     if result.returncode != 0:
         print(f"    FAILED: {result.stderr[-200:] if result.stderr else 'unknown'}")
