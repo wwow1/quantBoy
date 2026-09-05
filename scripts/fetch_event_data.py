@@ -5,12 +5,10 @@
 Two modes, both resumable via a per-unit completion ledger (_meta):
   full        backfill [--start, --end] (default 2026-01-01 .. today),
               skipping units already collected so a crashed run resumes.
-  incremental fetch units in the trailing --lookback-days window that are
-              missing; meant for the daily cron. Failures older than the
-              window are repaired by re-running full.
-
+  incremental rolling refresh of the trailing --lookback-days window
+              (ledger ignored); meant for the daily cron.
 Rate limits: shared 50 calls/min for all APIs; report_rc is capped at
-1 call/min by Tushare and gets its own 66s-spaced limiter.
+10 calls/hour by Tushare and gets its own ~6.6min-spaced limiter.
 """
 
 from __future__ import annotations
@@ -131,8 +129,7 @@ def build_units(pro, start: str, end: str) -> Dict[str, List[Tuple[str, Tuple[st
         "margin_market": [(f"td:{d}", ("trade_date", d)) for d in days],
         "repurchase": [(f"{a}..{b}", ("range", (a, b))) for a, b in _chunks(days, 21)],
         "share_float": [(f"{a}..{b}", ("range", (a, b))) for a, b in _chunks(days, 10)],
-        "pledge_stat": [(f"end:{d}", ("end_date", d)) for d in days[4::5]],
-        "report_rc": [(f"td:{d}", ("trade_date", d)) for d in days],
+        "report_rc": [(f"{a}..{b}", ("range", (a, b))) for a, b in _chunks(days, 3)],
     }
 
 
@@ -145,24 +142,25 @@ FETCHERS: Dict[str, Callable] = {
     "margin_market": lambda pro, kind, v: pro.margin(trade_date=v),
     "repurchase": lambda pro, kind, v: pro.repurchase(start_date=v[0], end_date=v[1]),
     "share_float": lambda pro, kind, v: pro.share_float(start_date=v[0], end_date=v[1]),
-    "pledge_stat": lambda pro, kind, v: pro.pledge_stat(end_date=v),
-    "report_rc": lambda pro, kind, v: pro.report_rc(start_date=v, end_date=v),
+    "report_rc": lambda pro, kind, v: pro.report_rc(start_date=v[0], end_date=v[1]),
 }
 
 
 # --------------------------------------------------------------------------- #
 # Sync
-# --------------------------------------------------------------------------- #
-def sync(pro, db: Path, start: str, end: str, rate: float, tables: Optional[List[str]] = None) -> int:
+def sync(pro, db: Path, start: str, end: str, rate: float, tables: Optional[List[str]] = None,
+         ignore_ledger: bool = False, tail_chunks: bool = False) -> int:
     conn = sqlite3.connect(db)
-    conn.execute("CREATE TABLE IF NOT EXISTS _meta (tbl TEXT, unit TEXT, rows INTEGER, PRIMARY KEY (tbl, unit))")
     done: Dict[str, set] = {}
-    for tbl, unit, _rows in conn.execute("SELECT tbl, unit, rows FROM _meta"):
-        done.setdefault(tbl, set()).add(unit)
+    if not ignore_ledger:
+        for tbl, unit, _rows in conn.execute("SELECT tbl, unit, rows FROM _meta"):
+            done.setdefault(tbl, set()).add(unit)
 
     limiter = RateLimiter(rate)
-    slow = RateLimiter(60.0 / 66.0)  # report_rc: 1 call/min, 6s safety margin
+    slow = RateLimiter(60.0 / 396.0)  # report_rc: 10 calls/hour, 10% margin
     units = build_units(pro, start, end)
+    if tail_chunks:
+        units["report_rc"] = units["report_rc"][-1:]
     total_rows = 0
     for table, plan in units.items():
         if tables and table not in tables:
@@ -219,10 +217,10 @@ def main() -> int:
     if args.mode == "incremental":
         start = (datetime.now() - timedelta(days=args.lookback_days)).strftime("%Y%m%d")
     tables = [t.strip() for t in args.tables.split(",") if t.strip()] or None
-    rows = sync(pro, Path(args.db), start, args.end, args.rate, tables)
+    rows = sync(pro, Path(args.db), start, args.end, args.rate, tables,
+                ignore_ledger=args.mode == "incremental",
+                tail_chunks=args.mode == "incremental")
     print(f"done: {rows} rows written", flush=True)
-    return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())
