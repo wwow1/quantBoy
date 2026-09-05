@@ -92,6 +92,8 @@ TS_TO_RQ_EXCHANGE = {
     "SZSE": "XSHE",
     "BJ": "XBSE",
     "BSE": "XBSE",
+    # Tushare fund_* APIs tag SH-listed funds with .OF instead of .SH
+    "OF": "XSHG",
 }
 
 
@@ -849,6 +851,8 @@ def fetch_dividends_for_dates(
 ) -> Dict[str, np.ndarray]:
     stock_ts = {rq_to_ts_code(order_book_id) for order_book_id in stock_ids}
     fund_ts = {rq_to_ts_code(order_book_id) for order_book_id in fund_ids}
+    # fund_div tags SH-listed funds with .OF; accept both spellings
+    fund_ts |= {c[:-3] + ".OF" for c in fund_ts if c.endswith(".SH")}
     records: Dict[str, List[tuple]] = {}
     for trading_date in dates:
         stock_div = source.call("dividend", ex_date=trading_date)

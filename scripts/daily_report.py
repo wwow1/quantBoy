@@ -329,6 +329,37 @@ def get_bundle_date_range() -> tuple[str, str]:
     return "20250101", "20260529"
 
 
+def get_bundle_missing_days(since: str = "20260101") -> list[str]:
+    """Trading days in [since, latest bar] missing from the index anchors.
+
+    Checks 000300.XSHG (backtest benchmark, must have a bar on every
+    trading day or RQAlpha's analyser aborts) and 000001.XSHG (anchors
+    RQAlpha's available_data_range; a stale tail clips every backtest).
+    Indexes never suspend, so any gap means a failed update left a hole
+    that a tail-only incremental update would never refill.
+    """
+    try:
+        import h5py
+        import numpy as np
+
+        with h5py.File(str(BUNDLE) + "/indexes.h5", "r") as f:
+            sets = []
+            for key in ("000300.XSHG", "000001.XSHG"):
+                if key in f:
+                    data = f[key]["datetime"][:]
+                    if len(data):
+                        sets.append({int(x) // 1000000 for x in data})
+        if not sets:
+            return []
+        latest = max(max(s) for s in sets)
+        td = np.load(str(BUNDLE) + "/trading_dates.npy", allow_pickle=False)
+        want = [int(d) for d in td if int(since) <= int(d) <= latest]
+        return [str(d) for d in want if any(d not in s for s in sets)]
+    except Exception as e:
+        print(f"Warning: could not check bundle gaps: {e}")
+        return []
+
+
 def compute_start_end() -> tuple[str, str]:
     """Compute backtest start/end from config."""
     cfg_start = str(CONFIG.get("start", "20260101"))
@@ -628,13 +659,18 @@ def update_bundle() -> str | None:
     _, last_date = get_bundle_date_range()
     today = datetime.now().strftime("%Y%m%d")
 
-    # Already up to date (within 1 day)
-    if last_date >= today:
+    # A failed run leaves holes a tail-only update never refills: start the
+    # window at the earliest missing trading day so the gap is backfilled.
+    missing = get_bundle_missing_days()
+    if last_date >= today and not missing:
         print(f"Bundle already current ({last_date}), skipping update.")
         return last_date
 
-    start_date = f"{last_date[:4]}-{last_date[4:6]}-{last_date[6:]}"
+    anchor = min([last_date] + missing)
+    start_date = f"{anchor[:4]}-{anchor[4:6]}-{anchor[6:]}"
     end_date = f"{today[:4]}-{today[4:6]}-{today[6:]}"
+    if missing:
+        print(f"Bundle gaps detected: {missing[:5]}{'...' if len(missing) > 5 else ''} ({len(missing)} days)")
     print(f"Updating bundle: {start_date} -> {end_date}")
 
     token = os.environ.get("TUSHARE_TOKEN", "")
