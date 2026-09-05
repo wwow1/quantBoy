@@ -218,6 +218,68 @@ STRATEGIES = [
             "QUANTBOY_RQ_ALLOW_SWITCH": "1",
         },
     },
+    {
+        "name": "low_volatility",
+        "label": "低波动优选",
+        "env": {
+            "QUANTBOY_RQ_STRATEGY": "low_volatility",
+            "QUANTBOY_RQ_REBALANCE": "daily",
+            "QUANTBOY_RQ_VOLATILITY_LOOKBACK": "60",
+            "QUANTBOY_RQ_LOW_VOLATILITY_TOP_K": "3",
+        },
+    },
+    {
+        "name": "trend_timing",
+        "label": "趋势择时",
+        "env": {
+            "QUANTBOY_RQ_STRATEGY": "trend_timing",
+            "QUANTBOY_RQ_REBALANCE": "daily",
+            "QUANTBOY_RQ_TREND_WINDOW": "200",
+        },
+    },
+    {
+        "name": "mean_reversion",
+        "label": "均值回归",
+        "env": {
+            "QUANTBOY_RQ_STRATEGY": "mean_reversion",
+            "QUANTBOY_RQ_REBALANCE": "daily",
+            "QUANTBOY_RQ_MEAN_REVERSION_LOOKBACK": "20",
+            "QUANTBOY_RQ_MEAN_REVERSION_TOP_K": "1",
+            "QUANTBOY_RQ_TREND_WINDOW": "120",
+        },
+    },
+    {
+        "name": "volatility_target",
+        "label": "波动率目标",
+        "env": {
+            "QUANTBOY_RQ_STRATEGY": "volatility_target",
+            "QUANTBOY_RQ_REBALANCE": "daily",
+            "QUANTBOY_RQ_VOLATILITY_LOOKBACK": "60",
+            "QUANTBOY_RQ_TARGET_VOLATILITY": "0.10",
+            "QUANTBOY_RQ_MAX_LEVERAGE": "1.0",
+        },
+    },
+    {
+        "name": "dual_momentum",
+        "label": "双重动量",
+        "env": {
+            "QUANTBOY_RQ_STRATEGY": "dual_momentum",
+            "QUANTBOY_RQ_REBALANCE": "daily",
+            "QUANTBOY_RQ_MOMENTUM_LOOKBACK": "120",
+            "QUANTBOY_RQ_MOMENTUM_TOP_K": "3",
+            "QUANTBOY_RQ_MIN_RETURN": "0",
+        },
+    },
+    {
+        "name": "drawdown_control",
+        "label": "回撤控制",
+        "env": {
+            "QUANTBOY_RQ_STRATEGY": "drawdown_control",
+            "QUANTBOY_RQ_REBALANCE": "daily",
+            "QUANTBOY_RQ_DRAWDOWN_LOOKBACK": "120",
+            "QUANTBOY_RQ_MAX_DRAWDOWN": "0.08",
+        },
+    },
 ]
 
 def get_bundle_date_range() -> tuple[str, str]:
@@ -304,16 +366,20 @@ def run_backtest(strategy: dict, start: str, end: str) -> dict | None:
         return {"name": strategy["name"], "label": strategy["label"], "error": True,
                 "stderr": str(e)}
 
+    return parse_backtest_result(strategy, pkl)
+
+
+def parse_backtest_result(strategy: dict, pkl: dict) -> dict:
+    """Convert a raw RQAlpha result pickle into a report-ready dict."""
     summary = pkl.get("summary", {})
     portfolio = pkl.get("portfolio")
     trades = pkl.get("trades")
-
-    # Extract daily equity curve
     equity_curve = []
     if portfolio is not None and not portfolio.empty:
-        for _, row in portfolio.iterrows():
+        for idx, row in portfolio.iterrows():
+            # RQAlpha puts the trading date in the index, not a column.
             equity_curve.append({
-                "date": str(row.get("date", ""))[:10],
+                "date": str(idx)[:10],
                 "value": round(float(row.get("total_value", 0)), 2),
             })
 
@@ -389,30 +455,66 @@ def render_html(results: list[dict], start: str, end: str) -> str:
     # Build strategy cards
     cards_html = ""
     for r in valid:
-        # Equity curve SVG
+        # Equity curve SVG with axes: y = portfolio value (CNY), x = trade date
         ec = r["equity_curve"]
         svg = ""
         if ec:
             values = [e["value"] for e in ec]
+            dates = [e["date"] for e in ec]
             min_v, max_v = min(values), max(values)
-            range_v = max(max_v - min_v, 1)
-            w, h = 600, 150
+            pad_v = max((max_v - min_v) * 0.08, 1.0)
+            lo, hi = min_v - pad_v, max_v + pad_v
+            range_v = hi - lo
+            w, h = 1200, 240
+            ml, mr, mt, mb = 64, 14, 14, 30  # left/right/top/bottom margins
+            pw, ph = w - ml - mr, h - mt - mb
             n = len(ec)
             points = []
             for i, e in enumerate(ec):
-                x = (i / max(n - 1, 1)) * w
-                y = h - ((e["value"] - min_v) / range_v) * h
+                x = ml + (i / max(n - 1, 1)) * pw
+                y = mt + ph - ((e["value"] - lo) / range_v) * ph
                 points.append(f"{x:.1f},{y:.1f}")
             poly_str = " ".join(points)
             line_color = "#52c41a" if r["total_returns"] >= 0 else "#ff4d4f"
-            svg = f'''<svg viewBox="0 0 {w} {h}" style="width:100%;height:150px">
+            base_y = mt + ph
+            # Horizontal gridlines + y labels (portfolio value in CNY)
+            y_ticks = ""
+            for k in range(5):
+                frac = k / 4.0
+                val = lo + range_v * frac
+                ty = mt + ph - frac * ph
+                y_ticks += (
+                    f'<line x1="{ml}" y1="{ty:.1f}" x2="{w - mr}" y2="{ty:.1f}" '
+                    f'stroke="#21262d" stroke-width="1"/>'
+                    f'<text x="{ml - 6}" y="{ty + 3.5:.1f}" font-size="10" fill="#8b949e" '
+                    f'text-anchor="end">{val:,.0f}</text>'
+                )
+            # X-axis date ticks (up to 6 labels across the backtest window)
+            x_ticks = ""
+            tick_count = min(6, n)
+            for k in range(tick_count):
+                idx = round(k * (n - 1) / max(tick_count - 1, 1))
+                tx = ml + (idx / max(n - 1, 1)) * pw
+                anchor = "start" if k == 0 else ("end" if k == tick_count - 1 else "middle")
+                x_ticks += (
+                    f'<line x1="{tx:.1f}" y1="{base_y}" x2="{tx:.1f}" y2="{base_y + 4}" '
+                    f'stroke="#30363d" stroke-width="1"/>'
+                    f'<text x="{tx:.1f}" y="{base_y + 16}" font-size="10" fill="#8b949e" '
+                    f'text-anchor="{anchor}">{dates[idx]}</text>'
+                )
+            svg = f'''<svg viewBox="0 0 {w} {h}" style="width:100%;height:auto" role="img" aria-label="权益曲线">
+              {y_ticks}
+              <line x1="{ml}" y1="{mt}" x2="{ml}" y2="{base_y}" stroke="#30363d" stroke-width="1"/>
+              <line x1="{ml}" y1="{base_y}" x2="{w - mr}" y2="{base_y}" stroke="#30363d" stroke-width="1"/>
+              {x_ticks}
               <polyline points="{poly_str}" fill="none" stroke="{line_color}" stroke-width="1.5"/>
-              <polyline points="0,{h} {poly_str} {w},{h}" fill="{line_color}" opacity="0.1" stroke="none"/>
+              <polyline points="{ml},{base_y} {poly_str} {ml + pw:.1f},{base_y}" fill="{line_color}" opacity="0.1" stroke="none"/>
+              <text x="{ml - 6}" y="{mt - 4}" font-size="10" fill="#8b949e" text-anchor="end">元</text>
             </svg>'''
 
-        # Trades table
+        # Trades table (collapsed by default; <details> toggle expands it)
         trades_html = ""
-        for t in r["trades"][:20]:
+        for t in r["trades"][:50]:
             side_color = "#52c41a" if t["side"] == "买入" else "#ff4d4f"
             trades_html += f"""
             <tr>
@@ -435,10 +537,13 @@ def render_html(results: list[dict], start: str, end: str) -> str:
             <span class="metric">终值 ¥{r['final_value']:,.0f}</span>
           </div>
           <div class="equity">{svg}</div>
-          <table class="trades-table">
-            <thead><tr><th>日期</th><th>标的</th><th>方向</th><th>数量</th><th>价格</th></tr></thead>
-            <tbody>{trades_html}</tbody>
-          </table>
+          <details class="trades-details">
+            <summary>交易明细（{r['trade_count']} 笔，展示前 {min(len(r['trades']), 50)} 笔）· 点击展开</summary>
+            <table class="trades-table">
+              <thead><tr><th>日期</th><th>标的</th><th>方向</th><th>数量</th><th>价格</th></tr></thead>
+              <tbody>{trades_html}</tbody>
+            </table>
+          </details>
         </div>"""
 
     # Error cards
@@ -475,6 +580,10 @@ h1 {{ color:#58a6ff; margin-bottom:4px; }}
 .trades-table {{ width:100%; border-collapse:collapse; margin-top:12px; }}
 .trades-table th {{ color:#8b949e; font-size:11px; text-align:left; padding:6px 8px; border-bottom:1px solid #30363d; }}
 .trades-table td {{ padding:6px 8px; border-bottom:1px solid #21262d; font-size:12px; }}
+.trades-details {{ margin-top:12px; }}
+.trades-details summary {{ cursor:pointer; color:#8b949e; font-size:12px; padding:6px 8px; background:#161b22; border:1px solid #30363d; border-radius:4px; user-select:none; }}
+.trades-details summary:hover {{ color:#c9d1d9; border-color:#8b949e; }}
+.trades-details[open] summary {{ margin-bottom:8px; }}
 a {{ color:#58a6ff; text-decoration:none; }}
 a:hover {{ text-decoration:underline; }}
 </style>
