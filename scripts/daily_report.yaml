@@ -54,8 +54,6 @@ universe:
     name: "五粮液"
   - code: "600036"
     name: "招商银行"
-  - code: "300750"
-    name: "宁德时代"
 
 # Initial cash (CNY)
 cash: 100000

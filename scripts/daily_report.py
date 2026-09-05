@@ -112,6 +112,17 @@ def _fetch_hs300_stocks() -> list[dict]:
         return []
 
 
+def _is_tradable_stock(code: str) -> bool:
+    """Exclude ChiNext (30x) / STAR (68x) stocks: account lacks permission.
+
+    ETFs (51x/56x/58x/15x/16x) are unaffected -- exchange-traded funds do
+    not require ChiNext/STAR trading permission.
+    """
+    if code.startswith(("51", "56", "58", "15", "16")):
+        return True  # ETF / LOF
+    return not code.startswith(("30", "68"))
+
+
 # Build universe: config items + optional HS300 constituents
 _base_universe = CONFIG.get("universe", [])
 if CONFIG.get("hs300", False):
@@ -120,7 +131,10 @@ if CONFIG.get("hs300", False):
     for s in _hs300:
         if s["code"] not in _existing_codes:
             _base_universe.append(s)
-UNIVERSE = _base_universe
+_excluded = [i["code"] for i in _base_universe if not _is_tradable_stock(i["code"])]
+if _excluded:
+    print(f"Universe: excluding {len(_excluded)} ChiNext/STAR stocks (no trading permission)")
+UNIVERSE = [i for i in _base_universe if _is_tradable_stock(i["code"])]
 CODES = ",".join(item["code"] for item in UNIVERSE)
 
 # Resolve stock names from bundle instruments.pk for codes without display names
@@ -466,7 +480,7 @@ def render_html(results: list[dict], start: str, end: str) -> str:
             lo, hi = min_v - pad_v, max_v + pad_v
             range_v = hi - lo
             w, h = 1200, 240
-            ml, mr, mt, mb = 64, 14, 14, 30  # left/right/top/bottom margins
+            ml, mr, mt, mb = 64, 14, 26, 30  # left/right/top/bottom margins
             pw, ph = w - ml - mr, h - mt - mb
             n = len(ec)
             points = []
@@ -509,7 +523,7 @@ def render_html(results: list[dict], start: str, end: str) -> str:
               {x_ticks}
               <polyline points="{poly_str}" fill="none" stroke="{line_color}" stroke-width="1.5"/>
               <polyline points="{ml},{base_y} {poly_str} {ml + pw:.1f},{base_y}" fill="{line_color}" opacity="0.1" stroke="none"/>
-              <text x="{ml - 6}" y="{mt - 4}" font-size="10" fill="#8b949e" text-anchor="end">元</text>
+              <text x="{ml - 6}" y="12" font-size="10" fill="#8b949e" text-anchor="end">元</text>
             </svg>'''
 
         # Trades table (collapsed by default; <details> toggle expands it)
