@@ -176,7 +176,12 @@ def sync(pro, db: Path, start: str, end: str, rate: float, tables: Optional[List
             try:
                 df = FETCHERS[table](pro, kind, value)
             except Exception as exc:
-                print(f"  WARN {table} {unit}: {' '.join(str(exc).split())[:90]}", flush=True)
+                msg = " ".join(str(exc).split())[:90]
+                print(f"  WARN {table} {unit}: {msg}", flush=True)
+                if table == "report_rc" and "频率超限" in str(exc):
+                    print("  report_rc quota exhausted; aborting table "
+                          "(failed calls count against quota)", flush=True)
+                    break
                 continue
             rows = upsert(conn, table, df)
             conn.execute("INSERT OR REPLACE INTO _meta (tbl, unit, rows) VALUES (?, ?, ?)", (table, unit, rows))
